@@ -1,0 +1,19 @@
+# Node
+node_modules/
+
+# Java / Spring Boot
+target/
+*.jar
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+
+# Zips
+*.zip
+
+# IDE
+.vscode/
+.idea/
