@@ -1,0 +1,28 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: answer-processing
+  data:
+    redis:
+      host: localhost
+      port: 6379
+    mongodb:
+      uri: mongodb://localhost:27017/quizlogs
+  kafka:
+    bootstrap-servers: localhost:9092
+
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+  data:
+    redis:
+      host: redis
+    mongodb:
+      uri: mongodb://mongo:27017/quizlogs
+  kafka:
+    bootstrap-servers: kafka:29092
+

@@ -1,0 +1,29 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: leaderboard
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  kafka:
+    bootstrap-servers: localhost:9092
+
+livequiz:
+  leaderboard:
+    top-k: 10
+    pubsub-channel: leaderboard.updates
+
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+  data:
+    redis:
+      host: redis
+  kafka:
+    bootstrap-servers: kafka:29092
+

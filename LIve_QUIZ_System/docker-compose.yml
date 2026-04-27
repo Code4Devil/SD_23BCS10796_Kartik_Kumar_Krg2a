@@ -1,0 +1,164 @@
+# Local-development infrastructure for the Live Quiz System.
+# Brings up every backing service the microservices need: Kafka (+ Zookeeper),
+# Redis, PostgreSQL, MongoDB, and the seven Spring Boot services themselves.
+#
+# Design notes:
+#   * Kafka is the async backbone (durable event log, replay, decoupling).
+#   * Redis is used for three different roles — session cache, leaderboard
+#     sorted sets, and pub/sub fan-out to WebSocket nodes. Running a single
+#     Redis instance here is fine for dev; in production use Redis Cluster
+#     with separate logical DBs or separate deployments per role.
+#   * PostgreSQL holds durable quiz/question/result data (strong consistency).
+#   * MongoDB holds high-volume, schema-flexible logs (cheat + answer logs).
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports: ["2181:2181"]
+    restart: unless-stopped
+    healthcheck:
+      # `cub zk-ready` is Confluent's built-in readiness probe for ZK.
+      test: ["CMD", "cub", "zk-ready", "localhost:2181", "5"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports: ["9092:9092"]
+    restart: unless-stopped
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # Two listeners: one for inter-container traffic (kafka:29092),
+      # one for host-machine clients (localhost:9092). This is the standard
+      # Confluent workaround for Kafka's advertised-listener quirk in Docker.
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+
+  redis:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6379:6379"]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: quiz
+      POSTGRES_PASSWORD: quiz
+      POSTGRES_DB: quizdb
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7
+    ports: ["27017:27017"]
+    volumes: ["mongodata:/data/db"]
+    restart: unless-stopped
+
+  # -------------------- Microservices --------------------
+  # Each service is stateless; horizontal scaling is done by raising `replicas`
+  # behind the API Gateway / a load balancer. Session affinity is not required
+  # for WebSocket nodes because fan-out goes through Redis Pub/Sub.
+
+  api-gateway:
+    build: ./api-gateway
+    depends_on: [redis]
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    ports: ["8080:8080"]
+    restart: unless-stopped
+
+  quiz-orchestrator:
+    build: ./quiz-orchestrator-service
+    depends_on:
+      postgres:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    ports: ["8081:8081"]
+    restart: unless-stopped
+
+  player-session:
+    build: ./player-session-service
+    depends_on: [redis]
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    ports: ["8082:8082"]
+    restart: unless-stopped
+
+  answer-processing:
+    build: ./answer-processing-service
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mongo:
+        condition: service_started
+      redis:
+        condition: service_started
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    ports: ["8083:8083"]
+    restart: unless-stopped
+
+  leaderboard:
+    build: ./leaderboard-service
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    ports: ["8084:8084"]
+    restart: unless-stopped
+
+  anti-cheat:
+    build: ./anti-cheat-service
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mongo:
+        condition: service_started
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    ports: ["8085:8085"]
+    restart: unless-stopped
+
+  websocket-gateway:
+    build: ./websocket-gateway-service
+    depends_on:
+      redis:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    ports: ["8086:8086"]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  mongodata:
+

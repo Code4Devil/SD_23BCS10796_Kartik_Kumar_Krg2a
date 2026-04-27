@@ -1,0 +1,23 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: anti-cheat
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/quizlogs
+  kafka:
+    bootstrap-servers: localhost:9092
+
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+  data:
+    mongodb:
+      uri: mongodb://mongo:27017/quizlogs
+  kafka:
+    bootstrap-servers: kafka:29092
+

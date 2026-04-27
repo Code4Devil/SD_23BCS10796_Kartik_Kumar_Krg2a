@@ -1,0 +1,43 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  cloud:
+    gateway:
+      globalcors:
+        add-to-simple-url-handler-mapping: true
+        corsConfigurations:
+          '[/**]':
+            allowedOriginPatterns:
+              - "http://localhost:5173"
+              - "http://localhost:3000"
+            allowedMethods: ["*"]
+            allowedHeaders: ["*"]
+            allowCredentials: true
+
+livequiz:
+  jwt:
+    # 32-byte minimum for HS256. Override via env/secret manager in prod.
+    secret: ${JWT_SECRET:change-me-please-change-me-please-32b}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+  data:
+    redis:
+      host: redis
+
